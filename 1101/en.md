@@ -2,10 +2,10 @@
 
 ## Problem Summary
 
-We are given a connected weighted graph with (N) cities and (M) roads.
+We are given a connected weighted graph with `N` cities and `M` roads.
 Each road has a *danger value*.
 
-For each query (s, t), we must find a path from (s) to (t) such that:
+For each query `s t`, we must find a path from `s` to `t` such that:
 
 > the maximum danger of any road on the path is minimized.
 
@@ -19,7 +19,8 @@ If we build a **Minimum Spanning Tree (MST)** of the graph, then:
 
 > For any two nodes, the path between them in the MST minimizes the maximum edge weight among all possible paths in the original graph.
 
-This is a well-known property of MSTs.
+Why is this true? Intuitively, in an MST every edge is as "cheap" as possible: if there were a path between two nodes whose maximum edge could be made smaller by taking some other route in the original graph, we could replace the larger edge on the MST path with that smaller edge and still keep the graph connected. That would give us another spanning tree with strictly smaller maximum edge on that path, contradicting the fact that the original tree was minimum. So for any pair of nodes, the path inside the MST uses edges that are as small as possible, and the largest edge on that MST path is the smallest possible "bottleneck" among all paths in the original graph.
+
 Therefore, once we construct the MST, we only need to answer queries on that tree.
 
 ---
@@ -31,21 +32,21 @@ Therefore, once we construct the MST, we only need to answer queries on that tre
 3. Preprocess the tree using **Binary Lifting**
 4. Store:
 
-   * `anc[u][i]` → (2^i)-th ancestor of node (u)
-   * `mx[u][i]` → maximum edge weight from (u) to its (2^i)-th ancestor
+   * `anc[u][i]` → `2^i`-th ancestor of node `u`
+   * `mx[u][i]` → maximum edge weight from `u` to its `2^i`-th ancestor
 5. For each query:
 
-   * compute LCA of (u) and (v)
-   * find maximum edge on path (u to LCA) and (v to LCA) using binary lifting
+   * compute LCA of `u` and `v`
+   * find maximum edge on path (`u` to LCA) and (`v` to LCA) using binary lifting
    * answer = max of the two above values.
 
 ---
 
 ## Complexity
 
-* MST construction: (O(M log N))
-* Binary lifting preprocessing: (O(N log N))
-* Each query: (O(log N))
+* MST construction: `O(M log N)`
+* Binary lifting preprocessing: `O(N log N)`
+* Each query: `O(log N)`
 
 This easily fits within constraints.
 
@@ -56,172 +57,186 @@ This easily fits within constraints.
 ```cpp
 #include<bits/stdc++.h>
 using namespace std;
-#define br cout<<"\n";
-#define ll long long
-#define loop(n) for(int i=0; i<(n); i++)
-#define fr(i,init, n) for(int i=(init); i<(n); i++)
-#define revl(i,init) for(int i=(init-1); i>=0; i--)
-#define pb push_back
-#define all(v) v.begin(),v.end()
-#define nl "\n"
+
+// Constants
+const int N = 50005, LOG = 18;  // N = max nodes, LOG = ceil(log2(N)) for binary lifting
+
+// Graph structures
+vector<pair<int,int>> mainGraph[N]; // Original graph edges: {neighbor, weight}
+vector<pair<int,int>> MST[N];       // Minimum Spanning Tree edges
+bool vis[N];                        // Visited array for MST construction
+
+// Binary lifting tables
+int anc[N][LOG]; // anc[node][i] = 2^i-th ancestor of node
+int mx[N][LOG];  // mx[node][i] = maximum edge weight from node to its 2^i-th ancestor
+int dep[N];      // Depth of each node in the MST (rooted at 1)
 
 
-const int N =  50005, LOG=18 ;
-vector<pair<int,int>> adj2[N], adj[N];
-bool vis[N];
-int anc[N][LOG], mx[N][LOG], dep[N];
-
-
-// clear global variables for each test case
-void clear(){
-    loop(N){
+// Clear all globals for new test case
+void clear() {
+    for(int i = 0; i < N; i++){
         vis[i] = false;
-        adj2[i].clear();
-        adj[i].clear();
+        mainGraph[i].clear();
+        MST[i].clear();
     }
-    memset(anc,0, sizeof(anc));
+    // due the the constraints of the problem its feasible to clear the entire thing upto N
+    memset(anc, 0, sizeof(anc));
     memset(mx, 0, sizeof(mx));
     memset(dep, 0, sizeof(dep));
 }
 
-// create the MST from adj2[] and build the new one in adj[]
-void createMST(){
-    
+
+// Create MST using Prim's algorithm and store it in MST[]
+void createMST() {
+    // Min-heap for Prim's: stores {weight, node, parent}
     priority_queue<
         tuple<int,int,int>,
         vector<tuple<int,int,int>>,
         greater<tuple<int,int,int>>
     > pq;
-    
-    pq.push({-1, 1,0});
-    
-    while(! pq.empty()){
+
+    pq.push({-1, 1, 0}); // Start from node 1, with "fake" edge weight -1
+
+    while(!pq.empty()){
         int wt, node, parent;
-        tie(wt, node, parent) = pq.top();
+        tie(wt, node, parent) = pq.top(); 
         pq.pop();
-        
-        if(vis[node]) continue;
-        
+
+        if(vis[node]) continue; // Already included in MST
+
         vis[node] = true;
-        
-        if(parent!=0){
-            adj[parent].pb({node,wt});
-            adj[node].pb({parent,wt});
+
+        if(parent != 0){
+            // Add edge to MST (undirected)
+            MST[parent].push_back({node, wt});
+            MST[node].push_back({parent, wt});
         }
-        
-        
-        for(auto child: adj2[node]){
+
+        // Push all adjacent edges to PQ
+        for(auto child: mainGraph[node]){
             if(!vis[child.first]){
                 pq.push({child.second, child.first, node});
             }
         }
     }
-        
 }
+
+
+// DFS on MST to compute depth, ancestor table, and max edge table for binary lifting
+void dfs(int node, int par = 0, int wt = 0){
     
-// dfs for binary-lifting precomputations
-void dfs(int node, int par=0, int wt=0){
+    dep[node] = dep[par] + 1; // Set depth
+    anc[node][0] = par;       // 2^0-th ancestor is immediate parent
+    mx[node][0] = wt;         // Max edge to parent
 
-    dep[node] = dep[par]+1;
-    anc[node][0] = par;
-
-    mx[node][0]= wt;
-
-    fr(i,1,LOG){
-        anc[node][i] = anc[ anc[node][i-1] ][i-1];
-        mx[node][i] = max( mx[ anc[node][i-1] ][i-1] , mx[node][i-1] );
+    // Binary lifting preprocessing
+    for(int i = 1; i < LOG; i++){
+        anc[node][i] = anc[anc[node][i-1]][i-1]; // 2^i-th ancestor
+        mx[node][i] = max(mx[anc[node][i-1]][i-1], mx[node][i-1]); // Max edge to 2^i-th ancestor
     }
 
-    for(auto child: adj[node]){
-        if(child.first != par){
+    // DFS to children
+    for(auto child: MST[node]){
+        if(child.first != par){ // Avoid going back to parent
             dfs(child.first, node, child.second);
         }
     }
 }
 
-int lca(int u, int v){
-    if(dep[u]< dep[v]) swap(u,v);
 
-    revl(i,LOG){
-        if( dep[ anc[u][i] ] >= dep[v] ){
+// Find LCA (Lowest Common Ancestor) of two nodes using binary lifting
+int lca(int u, int v){
+    if(dep[u] < dep[v]) swap(u, v); // Make u deeper
+
+    // Lift u up to same depth as v
+    for(int i = LOG-1; i >= 0; i--){
+        if(dep[anc[u][i]] >= dep[v]){
             u = anc[u][i];
         }
     }
 
-    if(u==v) return u;
+    if(u == v) return u; // If one is ancestor of the other
 
-    revl(i,LOG){
+    // Lift both u and v until their ancestors match
+    for(int i = LOG-1; i >= 0; i--){
         if(anc[u][i] != anc[v][i]){
             u = anc[u][i];
             v = anc[v][i];
         }
     }
 
-    return anc[u][0];
-
+    return anc[u][0]; // Return their parent (LCA)
 }
 
-// maximum edge between a node and its ancestor
-int maxedge(int node, int l){
-    int dis = dep[node] - dep[l];
 
+// Maximum edge weight on path from node to its ancestor 'l'
+int maxedge(int node, int l){
+    int dis = dep[node] - dep[l]; // Distance from node to ancestor
     int ans = 0;
 
-    revl(i,LOG){
-        if(dis & (1<<i)){
-            ans = max( ans, mx[node][i]   );
-            node= anc[node][i];
+    // Lift node up to ancestor while tracking max edge
+    for(int i = LOG-1; i >= 0; i--){
+        if(dis & (1 << i)){
+            ans = max(ans, mx[node][i]);
+            node = anc[node][i];
         }
     }
-
     return ans;
-
 }
 
+
+// Query maximum edge weight between two nodes u and v
 int query(int u, int v){
-
-    int l = lca(u,v);
-
-    return max( maxedge(u,l), maxedge(v,l) );
-
+    int l = lca(u, v); // Find LCA
+    return max(maxedge(u, l), maxedge(v, l)); // Max edge from u->LCA and v->LCA
 }
 
 
-
-int tc = 1;
+int tc = 1; // Test case counter
 void SOLVE(){
-    clear();
-    cout<<"Case "<<tc++<<":"<<nl;
+    cout << "Case " << tc++ << ":" << "\n";
 
-    int n,m; cin>>n>>m;
+    int n, m; 
+    cin >> n >> m;
+    clear();
+
+    // Read graph
     while(m--){
-        int a,b,c; cin>>a>>b>>c;
-        adj2[a].pb({b,c});
-        adj2[b].pb({a,c});
+        int a, b, c;
+        cin >> a >> b >> c;
+        mainGraph[a].push_back({b, c});
+        mainGraph[b].push_back({a, c});
     }
 
     createMST();
+    dfs(1); 
+    // The original problem guarantees the graph (and thus the MST) is connected,
+    // so we can safely root the DFS at node 1. If used on arbitrary graphs,
+    // ensure connectivity or run DFS from all components.
 
-    dfs(1);
 
-    int q; cin>>q;
+    int q;
+    cin >> q;
+
     while(q--){
-        int u,v; cin>>u>>v;
-        cout<<query(u,v)<<nl;
+        int u, v;
+        cin >> u >> v;
+        cout << query(u, v) << "\n"; 
     }
-
 }   
+
 
 signed main(){
     ios_base::sync_with_stdio(0);
     cin.tie(0);
-    int t=1;
 
-    cin>>t;///////////////////// 
+    int t;
+    cin >> t;
 
     while(t--) SOLVE();
     return 0;
 }
+
 ```
 
 ---
