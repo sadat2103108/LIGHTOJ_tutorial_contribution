@@ -79,7 +79,7 @@ void clear() {
         mainGraph[i].clear();
         MST[i].clear();
     }
-    // due the the constraints of the problem its feasible to clear the entire thing upto N
+    // due to the constraints of the problem it's feasible to clear the entire thing up to N
     memset(anc, 0, sizeof(anc));
     memset(mx, 0, sizeof(mx));
     memset(dep, 0, sizeof(dep));
